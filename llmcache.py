@@ -428,9 +428,6 @@ class LLMCache:
                         item["response"],  # This is already a JSON string
                     )
                 )
-                logger.info(
-                    f"Inserting item: {key} with temperature: {item['temperature']} and response: {item['response']}"
-                )
 
             # Bulk insert new items
             if items_to_insert:

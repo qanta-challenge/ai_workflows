@@ -18,13 +18,13 @@ def _get_workflow_response(
 
 
 class TossupResult(TypedDict):
-    answer: str
-    confidence: float
-    logprob: float | None
-    buzz: bool
-    question_fragment: str
-    position: int
-    step_contents: list[str]
+    answer: str  # the model's best guess
+    confidence: float  # confidence score (0-1)
+    logprob: float | None  # log probability of the answer
+    buzz: bool  # whether the agent buzzed
+    question_fragment: str  # prefix of the question text so far
+    position: int  # 1-indexed question run index
+    step_contents: list[str]  # string content outputs of each step
     response_time: float
     step_outputs: dict[str, Any]
 
@@ -64,7 +64,14 @@ class QuizBowlTossupAgent:
                 raise ValueError(f"Output variable {out_var} not found in workflow outputs")
 
     def _single_run(self, question_run: str, position: int) -> TossupResult:
-        """Process a single question run."""
+        """Process a single question run.
+        Args:
+            question_run: The question run to process
+            position: The position of the question run
+
+        Returns:
+            A TossupResult containing the answer, confidence, logprob, buzz, question fragment, position, step contents, response time, and step outputs
+        """
         answer_var_step = self.workflow.outputs["answer"].split(".")[0]
         workflow_output, response_time = _get_workflow_response(
             self.workflow, {self.external_input_variable: question_run}, logprob_step=answer_var_step
@@ -179,7 +186,7 @@ if __name__ == "__main__":
     # Load the Quizbowl dataset
     from datasets import load_dataset
 
-    from workflows.factory import create_quizbowl_bonus_workflow, create_quizbowl_tossup_workflow
+    from shared.workflows.factory import create_quizbowl_bonus_workflow, create_quizbowl_tossup_workflow
 
     ds_name = "qanta-challenge/leaderboard_co_set"
     ds = load_dataset(ds_name, split="train")

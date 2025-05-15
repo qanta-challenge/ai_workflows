@@ -62,7 +62,7 @@ Defines custom exceptions for workflow-related errors:
 ## Usage Example
 
 ```python
-from workflows.structs import InputField, ModelStep, OutputField, Workflow
+from shared.workflows.structs import InputField, ModelStep, OutputField, Workflow
 
 # Define a workflow with two steps
 step1 = ModelStep(
@@ -92,7 +92,7 @@ workflow = Workflow(
 )
 
 # Execute the workflow
-from workflows.executors import execute_workflow
+from shared.workflows.executors import execute_workflow
 
 result = execute_workflow(
     workflow=workflow,

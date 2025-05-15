@@ -512,7 +512,6 @@ def run_examples():
     # External input "input.value" is provided. Two steps:
     #  - step1 takes "input.value" and produces "step1.result".
     #  - step2 uses "step1.result" and produces "step2.final".
-    from workflows.structs import ModelStep, Workflow
 
     workflow_success = Workflow(
         steps={

@@ -4,21 +4,8 @@ from datasets import Dataset
 from loguru import logger
 from tqdm import tqdm
 
+from .metrics import evaluate_prediction
 from .qb_agents import QuizBowlBonusAgent, QuizBowlTossupAgent
-
-
-def evaluate_prediction(prediction: str, clean_answers: list[str] | str) -> int:
-    """Evaluate the buzz of a prediction against the clean answers."""
-    if isinstance(clean_answers, str):
-        clean_answers = [clean_answers]
-    pred = prediction.lower().strip()
-    if not pred:
-        return 0
-    for answer in clean_answers:
-        answer = answer.strip().lower()
-        if answer and answer in pred:
-            return 1
-    return 0
 
 
 def get_question_runs(example: dict) -> list[str]:

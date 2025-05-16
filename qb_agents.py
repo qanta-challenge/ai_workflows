@@ -1,8 +1,11 @@
 import time
 from typing import Any, Iterable, TypedDict
 
+from anthropic import APIStatusError
 from loguru import logger
+from openai import APIError
 
+from .errors import ProviderAPIError, WorkflowExecutionError
 from .executors import WorkflowOutput, execute_workflow
 from .structs import TossupWorkflow, Workflow
 
@@ -11,10 +14,30 @@ def _get_workflow_response(
     workflow: Workflow, available_vars: dict[str, Any], logprob_step: bool | str = False
 ) -> tuple[WorkflowOutput, float]:
     """Get response from executing a complete workflow."""
-    start_time = time.time()
-    workflow_output = execute_workflow(workflow, available_vars, return_full_content=True, logprob_step=logprob_step)
-    response_time = time.time() - start_time
-    return workflow_output, response_time
+    try:
+        start_time = time.time()
+        workflow_output = execute_workflow(
+            workflow, available_vars, return_full_content=True, logprob_step=logprob_step
+        )
+        response_time = time.time() - start_time
+        return workflow_output, response_time
+    except APIStatusError as e:
+        logger.error(f"Anthropic API error: {e.status_code}")
+        logger.error(f"Response body: {e.body}")
+        raise ProviderAPIError(workflow, "Anthropic", "Quota exceeded")
+    except APIError as e:
+        logger.error(f"OpenAI API error: {e.status_code}")
+        logger.error(f"Response body: {e.body}")
+        if e.code == 429:
+            raise ProviderAPIError(workflow, "OpenAI", "Quota / Rate limit exceeded")
+        raise ProviderAPIError(workflow, "OpenAI", e.message)
+    except ValueError as e:
+        logger.error(f"Exception type: {type(e).__module__}.{type(e).__name__}")
+        logger.error(f"Error Message: {e}")
+        raise e
+    except Exception as e:
+        logger.error(f"Exception type: {type(e).__module__}.{type(e).__name__}")
+        raise WorkflowExecutionError(workflow)
 
 
 class TossupResult(TypedDict):

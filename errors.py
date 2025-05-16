@@ -13,6 +13,8 @@ Exception hierarchy:
   - FunctionNotFoundError (missing function reference)
 """
 
+from .structs import Workflow
+
 
 # Define custom exceptions for workflow errors
 class WorkflowError(Exception):
@@ -61,3 +63,26 @@ class FunctionNotFoundError(WorkflowError):
 
     def __init__(self, func_name: str):
         super().__init__(f"Function not found: {func_name}")
+
+
+class WorkflowExecutionError(Exception):
+    """Exception for workflow errors."""
+
+    def __init__(self, workflow: Workflow):
+        self.workflow = workflow
+
+    def __str__(self):
+        model_names = ", ".join({step.model_name for step in self.workflow.steps})
+        return f"Workflow execution failed. Models used: {model_names}"
+
+
+class ProviderAPIError(WorkflowExecutionError):
+    """Exception for API credits errors."""
+
+    def __init__(self, workflow: Workflow, provider: str, reason: str):
+        self.workflow = workflow
+        self.provider = provider
+        self.reason = reason
+
+    def __str__(self):
+        return f"Workflow execution failed. Provider: {self.provider}. Reason: {self.reason}"

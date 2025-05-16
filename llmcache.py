@@ -306,7 +306,6 @@ class LLMCache:
         self, model: str, system: str, prompt: str, response_format: Any, temperature: float | None
     ) -> str:
         """Create JSON string from request parameters."""
-        logger.info(f"Creating request JSON with temperature: {temperature}")
         request_data = {
             "model": model,
             "system": system,

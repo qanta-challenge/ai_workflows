@@ -23,7 +23,7 @@ def create_tossup_df_entry(
     # if buzz is not the last index, correct scores 10, incorrect scores -5
     # if buzz is the final index, correct scores 5, incorrect scores 0
 
-    if chosen_idx == -1:
+    if chosen_idx is None:
         tossup_score = 0
     elif chosen_idx == run_indices[-1] + 1:
         tossup_score = 5 if is_correct else 0
@@ -52,7 +52,7 @@ def create_tossup_df_entry(
             if is_correct and chosen_idx <= pos:
                 win_counts += 1
                 soft_win_counts += 1
-            elif pos < chosen_idx and score < 0:
+            elif (chosen_idx is None or pos < chosen_idx) and score < 0:
                 soft_win_counts += 1
         human_win_rate = soft_win_counts / len(human_buzz_positions)
         human_win_rate_strict = win_counts / len(human_buzz_positions)

@@ -55,6 +55,7 @@ class TossupResult(TypedDict):
 class BonusResult(TypedDict):
     answer: str
     confidence: float
+    logprob: float | None
     explanation: str
     response_time: float
     step_contents: list[str]
@@ -197,6 +198,7 @@ class QuizBowlBonusAgent:
         return {
             "answer": final_outputs["answer"],
             "confidence": final_outputs["confidence"],
+            "logprob": workflow_output["logprob"],
             "explanation": final_outputs["explanation"],
             "step_contents": workflow_output["step_contents"],
             "response_time": response_time,

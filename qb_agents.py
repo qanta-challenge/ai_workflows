@@ -86,11 +86,11 @@ class QuizBowlTossupAgent:
             if out_var not in workflow.outputs:
                 raise ValueError(f"Output variable {out_var} not found in workflow outputs")
 
-    def _single_run(self, question_run: str, position: int) -> TossupResult:
+    def _single_run(self, question_run: str, run_idx: int) -> TossupResult:
         """Process a single question run.
         Args:
             question_run: The question run to process
-            position: The position of the question run
+            run_idx: The position of the question run (1-indexed)
 
         Returns:
             A TossupResult containing the answer, confidence, logprob, buzz, question fragment, position, step contents, response time, and step outputs
@@ -102,8 +102,8 @@ class QuizBowlTossupAgent:
         final_outputs = workflow_output["final_outputs"]
         buzz = self.workflow.buzzer.run(final_outputs["confidence"], logprob=workflow_output["logprob"])
         result: TossupResult = {
-            "position": position,
-            "answer": final_outputs["answer"],
+            "run_idx": run_idx,
+            "guess": final_outputs["answer"],
             "confidence": final_outputs["confidence"],
             "logprob": workflow_output["logprob"],
             "buzz": buzz,
@@ -195,7 +195,7 @@ class QuizBowlBonusAgent:
         )
         final_outputs = workflow_output["final_outputs"]
         return {
-            "answer": final_outputs["answer"],
+            "guess": final_outputs["answer"],
             "confidence": final_outputs["confidence"],
             "explanation": final_outputs["explanation"],
             "step_contents": workflow_output["step_contents"],

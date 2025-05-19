@@ -4,7 +4,7 @@ from datasets import Dataset
 from loguru import logger
 from tqdm import tqdm
 
-from .metrics import evaluate_prediction
+from .metrics import evaluate_prediction, helpfulness_score
 from .qb_agents import QuizBowlBonusAgent, QuizBowlTossupAgent
 
 
@@ -25,74 +25,102 @@ def run_and_evaluate_tossup(agent: QuizBowlTossupAgent, example: dict):
         logger.error(f"Error running {example['qid']}: {e}")
         run_outputs = []
     for run_output in run_outputs:
-        run_out = {
-            "answer": run_output["answer"],
-            "confidence": run_output["confidence"],
-            "buzz": run_output["buzz"],
-            "run_position": run_output["position"],
-        }
-        run_out["qid"] = example["qid"]
-        run_out["score"] = evaluate_prediction(run_out["answer"], example["clean_answers"])
-
+        run_out = {k: run_output[k] for k in ["guess", "confidence", "buzz", "run_idx"]}
+        run_out["correct"] = evaluate_prediction(run_out["guess"], example["clean_answers"])
         # This is 1-indexed token-position
-        run_out["token_position"] = example["run_indices"][run_output["position"] - 1] + 1
+        run_out["token_position"] = example["run_indices"][run_output["run_idx"] - 1] + 1
         results.append(run_out)
-    return results
+    return {
+        "qid": example["qid"],
+        "run_outputs": results,
+    }
 
 
 def run_and_eval_tossup_dataset(agent: QuizBowlTossupAgent, dataset: Dataset, num_workers: int = 4):
     def process_example(example: dict):
         return run_and_evaluate_tossup(agent, example)
 
-    run_outputs_by_qid = {}
+    outputs_map = {}
     with futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
         # Submit all tasks
         future_to_example = {executor.submit(process_example, example): example for example in dataset}
 
         # Use tqdm to show progress as futures complete
         for future in tqdm(futures.as_completed(future_to_example), total=len(dataset), desc="Running Tossups"):
-            example_results = future.result()
-            qid = example_results[0]["qid"]  # Taking qid from the first run_output
-            run_outputs_by_qid[qid] = example_results
+            result = future.result()
+            outputs_map[result["qid"]] = result
 
-    tossup_outputs = [run_outputs_by_qid[qid] for qid in dataset["qid"]]
+    tossup_outputs = [outputs_map[qid] for qid in dataset["qid"]]
     return tossup_outputs
 
 
-def run_and_evaluate_bonus(agent: QuizBowlBonusAgent, example: dict) -> list[dict]:
+def run_and_evaluate_bonus(agent: QuizBowlBonusAgent, example: dict) -> dict:
     results = []
     for i, part in enumerate(example["parts"], start=1):
         try:
             result = agent.run(example["leadin"], part["part"])
-            result = {
-                "answer": result["answer"],
-                "confidence": result["confidence"],
-                "explanation": result["explanation"],
-            }
+            result = {k: result[k] for k in ["guess", "confidence", "explanation"]}
         except Exception as e:
             logger.error(f"Error running {example['qid']} part {i}: {e}")
-            result = {"answer": "ERROR", "confidence": 0.0, "explanation": "Error producing answer."}
-        result["qid"] = example["qid"]
-        result["part_number"] = i
-        result["score"] = evaluate_prediction(result["answer"], part["clean_answers"])
+            result = {"guess": "ERROR", "confidence": 0.0, "explanation": "Error producing answer."}
+        result["number"] = i
+        result["correct"] = evaluate_prediction(result["guess"], part["clean_answers"])
         results.append(result)
-    return results
+    return {
+        "qid": example["qid"],
+        "part_outputs": results,
+    }
 
 
 def run_and_eval_bonus_dataset(agent: QuizBowlBonusAgent, dataset: Dataset, num_workers: int = 4) -> list[dict]:
-    def process_example(example: dict) -> list[dict]:
+    def process_example(example: dict) -> dict:
         return run_and_evaluate_bonus(agent, example)
 
-    part_outputs_by_qid = {}
+    outputs_map = {}
     with futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
         # Submit all tasks
         future_to_example = {executor.submit(process_example, example): example for example in dataset}
 
         # Use tqdm to show progress as futures complete
         for future in tqdm(futures.as_completed(future_to_example), total=len(dataset), desc="Running Bonuses"):
-            example_results = future.result()
-            qid = example_results[0]["qid"]
-            part_outputs_by_qid[qid] = example_results
+            result = future.result()
+            outputs_map[result["qid"]] = result
 
-    bonus_outputs = [part_outputs_by_qid[qid] for qid in dataset["qid"]]
+    bonus_outputs = [outputs_map[qid] for qid in dataset["qid"]]
     return bonus_outputs
+
+
+def inject_bonus_metrics_example(model_output: dict, example: dict, max_explanation_tokens: int = 30) -> dict:
+    leadin = example["leadin"]
+    results = []
+    for part, output in zip(example["parts"], model_output["part_outputs"]):
+        part_text = part["part"]
+        question_text = f"Leadin: {leadin}\n\nQuestion: {part_text}"
+        answer_refs = part["clean_answers"]
+        explanation = output["explanation"]
+        guess = output["guess"]
+        confidence = output["confidence"]
+        expl_tokens = explanation.split(" ")
+        if len(expl_tokens) > max_explanation_tokens:
+            explanation = " ".join(expl_tokens[:max_explanation_tokens]) + "...[TRUNCATED]"
+        h_scores = helpfulness_score(question_text, answer_refs, guess, explanation)
+        h_scores["helper_confidence"] = confidence
+        results.append(h_scores)
+    return {"scores": results}
+
+
+def inject_bonus_metrics(system_outputs: list[dict], dataset: Dataset) -> list[dict]:
+    outputs_map = {}
+    for bonus_output in system_outputs:
+        qid = bonus_output["qid"]
+        outputs_map[qid] = bonus_output
+
+    def process_example(example: dict) -> dict:
+        qid = example["qid"]
+        system_output = outputs_map[qid]
+        return inject_bonus_metrics_example(system_output, example)
+
+    scored_examples = dataset.map(process_example, num_proc=4)
+    for e, o in zip(scored_examples, system_outputs):
+        o["scores"] = e["scores"]
+    return system_outputs

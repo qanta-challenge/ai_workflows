@@ -41,19 +41,19 @@ def _get_workflow_response(
 
 
 class TossupResult(TypedDict):
-    answer: str  # the model's best guess
+    guess: str  # the model's best guess
     confidence: float  # confidence score (0-1)
     logprob: float | None  # log probability of the answer
     buzz: bool  # whether the agent buzzed
     question_fragment: str  # prefix of the question text so far
-    position: int  # 1-indexed question run index
-    step_contents: list[str]  # string content outputs of each step
+    run_idx: int  # 1-indexed question run index
     response_time: float
+    step_contents: list[str]  # string content outputs of each step
     step_outputs: dict[str, Any]
 
 
 class BonusResult(TypedDict):
-    answer: str
+    guess: str
     confidence: float
     logprob: float | None
     explanation: str

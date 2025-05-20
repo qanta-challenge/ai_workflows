@@ -16,16 +16,24 @@ def get_question_runs(example: dict) -> list[str]:
     return question_runs
 
 
-def run_and_evaluate_tossup(agent: QuizBowlTossupAgent, example: dict):
+def run_and_evaluate_tossup(
+    agent: QuizBowlTossupAgent,
+    example: dict,
+    return_extras: bool = False,
+    early_stop: bool = True,
+):
     results = []
     question_runs = get_question_runs(example)
     try:
-        run_outputs = agent.run(question_runs)
+        run_outputs = agent.run(question_runs, early_stop=early_stop)
     except Exception as e:
         logger.error(f"Error running {example['qid']}: {e}")
         run_outputs = []
     for run_output in run_outputs:
-        run_out = {k: run_output[k] for k in ["guess", "confidence", "buzz", "run_idx"]}
+        if return_extras:
+            run_out = run_output
+        else:
+            run_out = {k: run_output[k] for k in ["guess", "confidence", "buzz", "run_idx"]}
         run_out["correct"] = evaluate_prediction(run_out["guess"], example["clean_answers"])
         # This is 1-indexed token-position
         run_out["token_position"] = example["run_indices"][run_output["run_idx"] - 1] + 1
@@ -36,9 +44,16 @@ def run_and_evaluate_tossup(agent: QuizBowlTossupAgent, example: dict):
     }
 
 
-def run_and_eval_tossup_dataset(agent: QuizBowlTossupAgent, dataset: Dataset, num_workers: int = 4):
+def run_and_eval_tossup_dataset(
+    agent: QuizBowlTossupAgent,
+    dataset: Dataset,
+    early_stop: bool = True,
+    num_workers: int = 4,
+    return_extras: bool = False,
+    tqdm_provider: tqdm = tqdm,
+):
     def process_example(example: dict):
-        return run_and_evaluate_tossup(agent, example)
+        return run_and_evaluate_tossup(agent, example, return_extras, early_stop)
 
     outputs_map = {}
     with futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
@@ -46,7 +61,9 @@ def run_and_eval_tossup_dataset(agent: QuizBowlTossupAgent, dataset: Dataset, nu
         future_to_example = {executor.submit(process_example, example): example for example in dataset}
 
         # Use tqdm to show progress as futures complete
-        for future in tqdm(futures.as_completed(future_to_example), total=len(dataset), desc="Running Tossups"):
+        for future in tqdm_provider(
+            futures.as_completed(future_to_example), total=len(dataset), desc="Running Tossups"
+        ):
             result = future.result()
             outputs_map[result["qid"]] = result
 
@@ -54,12 +71,15 @@ def run_and_eval_tossup_dataset(agent: QuizBowlTossupAgent, dataset: Dataset, nu
     return tossup_outputs
 
 
-def run_and_evaluate_bonus(agent: QuizBowlBonusAgent, example: dict) -> dict:
+def run_and_evaluate_bonus(agent: QuizBowlBonusAgent, example: dict, return_extras: bool = False) -> dict:
     results = []
     for i, part in enumerate(example["parts"], start=1):
         try:
             result = agent.run(example["leadin"], part["part"])
-            result = {k: result[k] for k in ["guess", "confidence", "explanation"]}
+            if return_extras:
+                result = result
+            else:
+                result = {k: result[k] for k in ["guess", "confidence", "explanation"]}
         except Exception as e:
             logger.error(f"Error running {example['qid']} part {i}: {e}")
             result = {"guess": "ERROR", "confidence": 0.0, "explanation": "Error producing answer."}
@@ -72,9 +92,15 @@ def run_and_evaluate_bonus(agent: QuizBowlBonusAgent, example: dict) -> dict:
     }
 
 
-def run_and_eval_bonus_dataset(agent: QuizBowlBonusAgent, dataset: Dataset, num_workers: int = 4) -> list[dict]:
+def run_and_eval_bonus_dataset(
+    agent: QuizBowlBonusAgent,
+    dataset: Dataset,
+    num_workers: int = 4,
+    return_extras: bool = False,
+    tqdm_provider: tqdm = tqdm,
+) -> list[dict]:
     def process_example(example: dict) -> dict:
-        return run_and_evaluate_bonus(agent, example)
+        return run_and_evaluate_bonus(agent, example, return_extras)
 
     outputs_map = {}
     with futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
@@ -82,7 +108,9 @@ def run_and_eval_bonus_dataset(agent: QuizBowlBonusAgent, dataset: Dataset, num_
         future_to_example = {executor.submit(process_example, example): example for example in dataset}
 
         # Use tqdm to show progress as futures complete
-        for future in tqdm(futures.as_completed(future_to_example), total=len(dataset), desc="Running Bonuses"):
+        for future in tqdm_provider(
+            futures.as_completed(future_to_example), total=len(dataset), desc="Running Bonuses"
+        ):
             result = future.result()
             outputs_map[result["qid"]] = result
 
@@ -109,7 +137,7 @@ def inject_bonus_metrics_example(model_output: dict, example: dict, max_explanat
     return {"scores": results}
 
 
-def inject_bonus_metrics(system_outputs: list[dict], dataset: Dataset) -> list[dict]:
+def inject_bonus_metrics(system_outputs: list[dict], dataset: Dataset, num_workers: int = 4) -> list[dict]:
     outputs_map = {}
     for bonus_output in system_outputs:
         qid = bonus_output["qid"]
@@ -120,7 +148,7 @@ def inject_bonus_metrics(system_outputs: list[dict], dataset: Dataset) -> list[d
         system_output = outputs_map[qid]
         return inject_bonus_metrics_example(system_output, example)
 
-    scored_examples = dataset.map(process_example, num_proc=4)
+    scored_examples = dataset.map(process_example, num_proc=num_workers)
     for e, o in zip(scored_examples, system_outputs):
         o["scores"] = e["scores"]
     return system_outputs

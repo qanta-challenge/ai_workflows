@@ -173,24 +173,20 @@ def compute_bonus_metrics(system_outputs: list[dict]) -> dict:
     """Create a table from a dataframe."""
     # Compute Metrics
     total_parts = 0
-    total_questions = 0
     total_correct_parts = 0
     total_correct_questions = 0
 
     part_scores = []
     for system_output in system_outputs:
-        total_questions += 1
-        correct_parts = 0
-        n_parts = len(system_output["part_outputs"])
-        for i_part in range(n_parts):
-            part_output = system_output["part_outputs"][i_part]
-            part_scores.append(system_output["scores"][i_part])
-            total_parts += 1
-            if part_output["correct"]:
-                correct_parts += 1
-
+        part_outputs = system_output["part_outputs"]
+        n_parts = len(part_outputs)
+        total_parts += n_parts
+        correct_parts = sum(o["correct"] for o in part_outputs)
         total_correct_parts += correct_parts
         total_correct_questions += int(correct_parts == n_parts)
+        part_scores.extend(system_output["scores"])
+
+    total_questions = len(system_outputs)
 
     part_accuracy = total_correct_parts / total_parts
     question_accuracy = total_correct_questions / total_questions

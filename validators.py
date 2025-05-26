@@ -31,6 +31,7 @@ class ValidationErrorType(Enum):
     NAMING = "naming"
     LENGTH = "length"
     RANGE = "range"
+    UNSUPPORTED_MODEL = "unsupported_model"
 
 
 @dataclass
@@ -221,9 +222,7 @@ class WorkflowValidator:
 
         # Check for atleast one input
         if not workflow.inputs:
-            self.errors.append(
-                ValidationError(ValidationErrorType.GENERAL, "Workflow must contain at least one input")
-            )
+            self.errors.append(ValidationError(ValidationErrorType.GENERAL, "Workflow must contain at least one input"))
 
         # Check for atleast one output
         if not workflow.outputs:
@@ -322,7 +321,9 @@ class WorkflowValidator:
         # Check if the model names are allowed
         if self.allowed_model_names and model_name not in self.allowed_model_names:
             self.errors.append(
-                ValidationError(ValidationErrorType.STEP, f"Model name '{model_name}' is not allowed", step.id)
+                ValidationError(
+                    ValidationErrorType.UNSUPPORTED_MODEL, f"Model name '{model_name}' is not allowed", step.id
+                )
             )
             return False
 
@@ -467,9 +468,7 @@ class WorkflowValidator:
         # Validate required fields
         if not field.name or not field.description:
             self.errors.append(
-                ValidationError(
-                    ValidationErrorType.STEP, "Output field missing required fields", field_name=field.name
-                )
+                ValidationError(ValidationErrorType.STEP, "Output field missing required fields", field_name=field.name)
             )
             return False
 

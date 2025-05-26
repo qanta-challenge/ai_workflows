@@ -9,6 +9,7 @@ import numpy as np
 from langchain_anthropic import ChatAnthropic
 from langchain_cohere import ChatCohere
 from langchain_core.language_models import BaseChatModel
+from langchain_deepseek import ChatDeepSeek
 from langchain_openai import ChatOpenAI
 from loguru import logger
 from openai import OpenAI
@@ -89,10 +90,18 @@ def _cohere_completion(
     return output
 
 
-def _openai_langchain_completion(
-    model: str, system: str, prompt: str, response_model, temperature: float | None = None
+def _langchain_completion(
+    provider: str, model: str, system: str, prompt: str, response_model, temperature: float | None = None
 ) -> str:
-    llm = ChatOpenAI(model=model, temperature=temperature).with_structured_output(response_model, include_raw=True)
+    if provider == "OpenAI":
+        model_cls = ChatOpenAI
+    elif provider == "Anthropic":
+        model_cls = ChatAnthropic
+    elif provider == "DeepSeek":
+        model_cls = ChatDeepSeek
+    else:
+        raise ValueError(f"Provider {provider} not supported")
+    llm = model_cls(model=model, temperature=temperature).with_structured_output(response_model, include_raw=True)
     return _get_langchain_chat_output(llm, system, prompt)
 
 
@@ -118,13 +127,6 @@ def _openai_completion(
         output["logprob"] = sum(lp.logprob for lp in response.choices[0].logprobs.content)
         output["prob"] = np.exp(output["logprob"])
     return output
-
-
-def _anthropic_completion(
-    model: str, system: str, prompt: str, response_model, temperature: float | None = None
-) -> str:
-    llm = ChatAnthropic(model=model, temperature=temperature).with_structured_output(response_model, include_raw=True)
-    return _get_langchain_chat_output(llm, system, prompt)
 
 
 def _llm_completion(
@@ -160,11 +162,11 @@ def _llm_completion(
         elif logprobs:
             raise ValueError(f"{model} does not support logprobs feature.")
         else:
-            return _openai_langchain_completion(model_name, system, prompt, response_format, temperature)
-    elif provider == "Anthropic":
+            return _langchain_completion("OpenAI", model_name, system, prompt, response_format, temperature)
+    elif provider in {"Anthropic", "DeepSeek"}:
         if logprobs:
-            raise ValueError("Anthropic models do not support logprobs")
-        return _anthropic_completion(model_name, system, prompt, response_format, temperature)
+            raise ValueError(f"{provider} models do not support logprobs")
+        return _langchain_completion(provider, model_name, system, prompt, response_format, temperature)
     else:
         raise ValueError(f"Provider {provider} not supported")
 
@@ -281,5 +283,3 @@ if __name__ == "__main__":
             logger.exception(f"Failed to sync to HF: {e}")
     else:
         logger.info("HF repo not configured, skipping sync test")
-
-# %%

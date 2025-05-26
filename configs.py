@@ -38,6 +38,10 @@ AVAILABLE_MODELS = {
         "model": "command-r7b-12-2024",
         "logprobs": False,
     },
+    "DeepSeek/V3": {
+        "model": "deepseek-chat",
+        "logprobs": False,
+    },
 }
 
 # Function mapping for input/output transformations

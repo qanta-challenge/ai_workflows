@@ -6,6 +6,10 @@ including model configurations, workflow settings, and other package-wide consta
 """
 
 AVAILABLE_MODELS = {
+    "DeepSeek/V3": {
+        "model": "deepseek-chat",
+        "logprobs": False,
+    },
     "OpenAI/gpt-4o": {
         "model": "gpt-4o-2024-11-20",
         "logprobs": True,
@@ -36,10 +40,6 @@ AVAILABLE_MODELS = {
     },
     "Cohere/command-r7b": {
         "model": "command-r7b-12-2024",
-        "logprobs": False,
-    },
-    "DeepSeek/V3": {
-        "model": "deepseek-chat",
         "logprobs": False,
     },
 }

@@ -75,7 +75,7 @@ def run_and_evaluate_bonus(agent: QuizBowlBonusAgent, example: dict, return_extr
     results = []
     for i, part in enumerate(example["parts"], start=1):
         try:
-            result = agent.run(example["leadin"], part["part"])
+            result = agent.run(example["leadin"], part["question"])
             if return_extras:
                 result = result
             else:
@@ -119,11 +119,9 @@ def run_and_eval_bonus_dataset(
 
 
 def inject_bonus_metrics_example(model_output: dict, example: dict, max_explanation_tokens: int = 30) -> dict:
-    leadin = example["leadin"]
     results = []
     for part, output in zip(example["parts"], model_output["part_outputs"]):
-        part_text = part["part"]
-        question_text = f"Leadin: {leadin}\n\nQuestion: {part_text}"
+        question_text = f"Leadin: {example['leadin']}\n\nQuestion: {part['question']}"
         answer_refs = part["clean_answers"]
         explanation = output["explanation"]
         guess = output["guess"]

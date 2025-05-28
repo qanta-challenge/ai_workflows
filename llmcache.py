@@ -1,27 +1,13 @@
 import hashlib
 import json
-import os
 import sqlite3
 import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
 
-from datasets import Dataset, load_dataset, load_from_disk
-from huggingface_hub import snapshot_download
+from datasets import Dataset, load_dataset
 from loguru import logger
-
-
-def load_dataset_from_hf(repo_id, local_dir):
-    snapshot_download(
-        repo_id=repo_id,
-        local_dir=local_dir,
-        repo_type="dataset",
-        tqdm_class=None,
-        etag_timeout=30,
-        token=os.environ["HF_TOKEN"],
-    )
-    return load_dataset(repo_id)
 
 
 class CacheDB:
@@ -387,6 +373,16 @@ class LLMCache:
             except Exception as e:
                 logger.error(f"Failed to sync cache to HF dataset: {e}")
 
+    def get_all_entries(self) -> dict[str, dict[str, Any]]:
+        """Get all cache entries from the database."""
+        cache = self.db.get_all_entries()
+        entries = {}
+        for key, entry in cache.items():
+            request = json.loads(entry["request"])
+            response = json.loads(entry["response"])
+            entries[key] = {"request": request, "response": response}
+        return entries
+
     def _load_cache_from_hf(self) -> None:
         """Load cache from HF dataset if it exists and merge with local cache."""
         if not self.hf_repo_id:
@@ -394,11 +390,7 @@ class LLMCache:
 
         try:
             # Check for new commits before loading the dataset
-            ds_path = (self.cache_dir / "hf_cache").as_posix()
-            dataset = load_dataset_from_hf(self.hf_repo_id, ds_path)["train"]
-            if not dataset:
-                logger.info("No new items to merge from HF dataset")
-                return
+            dataset = load_dataset(self.hf_repo_id, split="train")
 
             existing_keys = self.db.get_existing_keys()
 
@@ -437,16 +429,6 @@ class LLMCache:
         except Exception as e:
             logger.warning(f"Could not load cache from HF dataset: {e}")
 
-    def get_all_entries(self) -> dict[str, dict[str, Any]]:
-        """Get all cache entries from the database."""
-        cache = self.db.get_all_entries()
-        entries = {}
-        for key, entry in cache.items():
-            request = json.loads(entry["request"])
-            response = json.loads(entry["response"])
-            entries[key] = {"request": request, "response": response}
-        return entries
-
     def sync_to_hf(self) -> None:
         """Sync cache to HF dataset."""
         if not self.hf_repo_id:
@@ -477,7 +459,7 @@ class LLMCache:
         # Create and push dataset
         dataset = Dataset.from_list(entries)
         dataset.push_to_hub(self.hf_repo_id, private=True)
-        logger.info(f"Synced {len(cache)} cached items to HF dataset {self.hf_repo_id}")
+        logger.info(f"Finished syncing {len(cache)} cached items to HF dataset {self.hf_repo_id}")
 
     def clear(self) -> None:
         """Clear all cache entries."""

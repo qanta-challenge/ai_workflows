@@ -3,11 +3,20 @@ import os
 
 import json_repair
 import litellm
+from loguru import logger
 
 from shared.workflows.metrics.qa_metrics import evaluate_prediction
 
-LITELLM_CACHE_DIR = os.getenv("LITELLM_CACHE_DIR", "caches/litellm-cache")
-litellm.enable_cache(type="disk", disk_cache_dir=LITELLM_CACHE_DIR)
+try:
+    from src.envs import LITELLM_CACHE_DIR
+except ImportError:
+    logger.exception("LITELLM_CACHE_DIR not found in src.envs, trying to look in environment")
+    LITELLM_CACHE_DIR = os.getenv("LITELLM_CACHE_DIR", None)
+
+if LITELLM_CACHE_DIR is None or LITELLM_CACHE_DIR == "":
+    logger.warning("LITELLM_CACHE_DIR not found or empty, disabling cache")
+else:
+    litellm.enable_cache(type="disk", disk_cache_dir=LITELLM_CACHE_DIR)
 
 
 def get_original_prediction(question: str, model: str = "gpt-4o-mini"):

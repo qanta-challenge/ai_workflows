@@ -19,7 +19,13 @@ from pydantic.json_schema import GenerateJsonSchema
 from rich import print as rprint
 
 # Initialize global cache
-from src.envs import CACHE_PATH, LLM_CACHE_REPO
+try:
+    from src.envs import CACHE_PATH, LLM_CACHE_REPO
+except ImportError as e:
+    logger.error(
+        "Either module src.envs not found, or CACHE_PATH or LLM_CACHE_REPO not found, trying to look in environment"
+    )
+    raise e
 
 from .configs import AVAILABLE_MODELS
 from .llmcache import LLMCache

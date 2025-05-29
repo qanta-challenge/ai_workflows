@@ -2,9 +2,13 @@
 import re
 
 import inflect
+from nltk.corpus import stopwords
 from unidecode import unidecode
 
+from .utils import normalize_answer, normalize_apostrophe, remove_articles, white_space_fix
+
 p = inflect.engine()
+stopwords = set(stopwords.words("english"))
 
 
 def answer_match(prediction: str, answer: str) -> bool:
@@ -21,61 +25,61 @@ def answer_match(prediction: str, answer: str) -> bool:
         - "press" in "compress" -> False
     """
 
-    pred_original = unidecode(prediction.lower().strip())
-    ans = unidecode(answer.strip().lower())
+    def normalize(text):
+        text = unidecode(normalize_apostrophe(text.lower().strip()))
+        text = text.replace("·", "")
+        return white_space_fix(remove_articles(text, start_only=True))
+
+    pred = normalize(prediction)
+    ans = normalize(answer)
 
     # Handle empty strings
-    if not pred_original or not ans:
+    if not pred or not ans:
         return False
 
     # Exact match
-    if pred_original == ans:
+    if pred == ans:
         return True
+
+    def check_presence(pred_to_check: str, ans: str) -> bool:
+        """Check if the answer is a subsequence of the prediction."""
+        pattern = r"\b" + re.escape(ans) + r"\b"
+        if re.search(pattern, pred_to_check):
+            return True
+
+        # Check for the length of pred_to_check. Don't search if pred_to_check is a stopword.
+        if pred_to_check in stopwords or len(pred_to_check) <= 2:
+            return pred_to_check == ans
+        return False
 
     # --- Helper function to check a given prediction form ---
     def check_form(pred_to_check: str) -> bool:
         if not pred_to_check:  # Skip if empty (e.g. p.singular_noun("") is False)
             return False
-        # Create regex pattern that matches word boundaries
-        # \b ensures we match whole words only
-        pattern = r"\b" + re.escape(pred_to_check) + r"\b"
-        return bool(re.search(pattern, ans))
+        return check_presence(pred_to_check, ans)
 
-    # --- End helper ---
+    candidates = {
+        pred,
+        p.singular_noun(pred),
+        p.plural(pred),
+        pred.removesuffix("s"),
+        pred.removesuffix("es"),
+    } - {False}
 
-    # Check original form
-    if check_form(pred_original):
-        return True
+    # If pred is a single word, allow -ing, -ism, etc forms
+    if len(pred.split()) == 1:
+        suffixes = ["ing", "ism", "ist", "ian", "ment", "ness", "ity", "est", "ed", "er", "al", "ous"]
+        for suffix in suffixes:
+            candidates.add(pred + suffix)
 
-    # Check singular form
-    # p.singular_noun(word) returns False if already singular or no reliable singular form
-    pred_singular = p.singular_noun(pred_original)
-    if pred_singular and pred_singular != pred_original:  # Check if a singular form was found and it's different
-        if check_form(pred_singular):
-            return True
-
-    # Check plural form
-    pred_plural = p.plural(pred_original)
-    if pred_plural != pred_original:  # Check if plural is different (it usually will be)
-        if check_form(pred_plural):
-            return True
-
-    # Check for cases where the prediction might be a plural and the answer is singular
-    # (inflect.singular_noun might not catch all if the input is already "singular" by its rules)
-    # This is a bit more heuristic
-    if pred_original.endswith("s"):
-        pred_ending_s_removed = pred_original[:-1]
-        if check_form(pred_ending_s_removed):
-            return True
-    if pred_original.endswith("es"):
-        pred_ending_es_removed = pred_original[:-2]
-        if check_form(pred_ending_es_removed):
+    for candidate in candidates:
+        if check_form(candidate):
             return True
 
     return False
 
 
-def evaluate_prediction(prediction: str, clean_answers: list[str] | str) -> int:
+def evaluate_answer_match(prediction: str, clean_answers: list[str] | str) -> int:
     """Evaluate the buzz of a prediction against the clean answers."""
     if isinstance(clean_answers, str):
         clean_answers = [clean_answers]
@@ -83,12 +87,33 @@ def evaluate_prediction(prediction: str, clean_answers: list[str] | str) -> int:
     if not pred:
         return 0
     for answer in clean_answers:
-        answer = answer.strip()
-        if not answer:
+        if not (a := answer.strip()):
             continue
-        if answer_match(pred, answer):
+        if answer_match(pred, a):
             return 1
     return 0
+
+
+def evaluate_em_match(prediction: str, clean_answers: list[str] | str) -> int:
+    """Check if the prediction matches the answer."""
+    if isinstance(clean_answers, str):
+        clean_answers = [clean_answers]
+    pred = normalize_answer(prediction)
+    if not pred:
+        return 0
+    for answer in clean_answers:
+        if not (a := normalize_answer(answer)):
+            continue
+        if pred == a:
+            return 1
+        if answer_match(pred, a):
+            return 1
+    return 0
+
+
+def evaluate_prediction(prediction: str, clean_answers: list[str] | str) -> int:
+    """Evaluate the buzz of a prediction against the clean answers."""
+    return evaluate_em_match(prediction, clean_answers)
 
 
 # %%

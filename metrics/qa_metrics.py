@@ -2,6 +2,9 @@
 import re
 
 import inflect
+import nltk
+
+nltk.download("stopwords")
 from nltk.corpus import stopwords
 from unidecode import unidecode
 

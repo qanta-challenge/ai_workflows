@@ -5,12 +5,12 @@ import json_repair
 import litellm
 from loguru import logger
 
-from shared.workflows.metrics.qa_metrics import evaluate_prediction
+from .qa_metrics import evaluate_prediction
 
 try:
     from src.envs import LITELLM_CACHE_DIR
 except ImportError:
-    logger.exception("LITELLM_CACHE_DIR not found in src.envs, trying to look in environment")
+    logger.warning("LITELLM_CACHE_DIR not found in src.envs, trying to look in environment")
     LITELLM_CACHE_DIR = os.getenv("LITELLM_CACHE_DIR", None)
 
 if LITELLM_CACHE_DIR is None or LITELLM_CACHE_DIR == "":

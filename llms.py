@@ -21,11 +21,13 @@ from rich import print as rprint
 # Initialize global cache
 try:
     from src.envs import CACHE_PATH, LLM_CACHE_REPO
-except ImportError as e:
+except ImportError:
     logger.error(
         "Either module src.envs not found, or CACHE_PATH or LLM_CACHE_REPO not found, trying to look in environment"
     )
-    raise e
+    CACHE_PATH = os.environ.get("LLM_CACHE_PATH", ".")
+    LLM_CACHE_REPO = None
+
 
 from .configs import AVAILABLE_MODELS
 from .llmcache import LLMCache

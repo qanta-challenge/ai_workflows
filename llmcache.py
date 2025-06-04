@@ -8,10 +8,37 @@ from typing import Any, Optional
 
 from datasets import Dataset, load_dataset
 from loguru import logger
+from pydantic import BaseModel
 
 
 class CacheDB:
-    """Handles database operations for storing and retrieving cache entries."""
+    """Handles database operations for storing and retrieving cache entries.
+
+    ### Public Methods:
+        * `__init__(db_path: Path)`
+
+            Initializes the CacheDB instance with the given SQLite database path.
+
+        * set(key: str, request_json: str, response_json: str) -> bool
+
+            Inserts or updates a cache entry with the provided key and JSON data.
+
+        * get_all_entries() -> dict[str, dict[str, Any]]
+
+            Retrieves all cache entries from the database.
+
+        * get_existing_keys() -> set[str]
+
+            Returns a set of keys currently stored in the cache.
+
+        * bulk_insert(items: list, update: bool = False) -> int
+
+            Inserts multiple cache entries in bulk, optionally updating existing ones.
+
+        * clear() -> None
+
+            Clears all entries from the cache.
+    """
 
     def __init__(self, db_path: Path):
         """Initialize database connection.
@@ -237,15 +264,76 @@ class CacheDB:
                 return 0
 
 
+def parse_dataset_repo_id(repo_name: str) -> tuple[str, str, str]:
+    split_count = repo_name.count(":")
+    if split_count > 2:
+        raise ValueError(
+            f"Invalid repository name: {repo_name}. Should be in the format <repo_id>[:<config>][:<split>]"
+        )
+    if split_count == 0:
+        repo_name = f"{repo_name}::train"
+    elif split_count == 1:
+        repo_name = f"{repo_name}:train"
+    elif split_count == 2:
+        pass
+
+    repo_id, config, split = repo_name.split(":")
+    config = config or None
+    return repo_id, config, split
+
+
+def load_dataset_repo(repo_name: str) -> Dataset:
+    repo_id, config, split = parse_dataset_repo_id(repo_name)
+    return load_dataset(repo_id, config=config, split=split)
+
+
 class LLMCache:
+    """
+    ### Public Methods:
+        * `__init__(cache_dir: str = ".", hf_repo: str | None = None, cache_sync_interval: int = 3600, reset: bool = False)`
+
+            Initializes the LLMCache instance with the given cache directory and HF repo.
+
+        * `get(model: str, system: str, prompt: str, response_format: dict[str, Any], temperature: float | None = None) -> Optional[dict[str, Any]]`
+
+            Retrieves cached response if it exists.
+
+        * `set(model: str, system: str, prompt: str, response_format: dict[str, Any], temperature: float | None, response: dict[str, Any]) -> None`
+
+            Stores response in cache and syncs if needed.
+
+        * `get_all_entries() -> dict[str, dict[str, Any]]`
+
+            Retrieves all cache entries from the database.
+
+        * `has_hf_repo() -> bool`
+
+            Checks if the cache has an HF repo assigned.
+
+        * `assign_hf_repo(hf_repo: str) -> None`
+
+            Assigns an HF repo to the cache. If no repo is assigned, the cache will not sync to HF.
+
+        * `sync_to_hf() -> None`
+
+            Syncs the cache to the HF repo. First downloads the latest dataset from HF, then merges it with the local cache, and finally pushes the merged cache to HF.
+            When in conflict (key collision), the local cache takes precedence.
+
+        * `clear() -> None`
+
+            Clears all cache entries.
+
+    """
+
     def __init__(
         self, cache_dir: str = ".", hf_repo: str | None = None, cache_sync_interval: int = 3600, reset: bool = False
     ):
         self.cache_dir = Path(cache_dir)
         self.db_path = self.cache_dir / "llm_cache.db"
-        self.hf_repo_id = hf_repo
         self.cache_sync_interval = cache_sync_interval
         self.last_sync_time = time.time()
+
+        self.hf_repo: str | None = hf_repo
 
         # Create cache directory if it doesn't exist
         self.cache_dir.mkdir(exist_ok=True, parents=True)
@@ -261,27 +349,26 @@ class LLMCache:
         except Exception as e:
             logger.warning(f"Failed to load cache from HF dataset: {e}")
 
-    def response_format_to_dict(self, response_format: Any) -> dict[str, Any]:
-        """Convert a response format to a dict."""
-        # If it's a Pydantic model, use its schema
+    def _response_format_json(self, response_format: BaseModel | dict) -> str:
+        """Convert a response format to a JSON string."""
+        # If it's a Pydantic BaseModel subclass, use its schema
         if hasattr(response_format, "model_json_schema"):
-            response_format = response_format.model_json_schema()
+            return json.dumps(response_format.model_json_schema())
 
         # If it's a Pydantic model, use its dump
-        elif hasattr(response_format, "model_dump"):
-            response_format = response_format.model_dump()
+        elif hasattr(response_format, "model_dump_json"):
+            return response_format.model_dump_json()
 
-        if not isinstance(response_format, dict):
-            response_format = {"value": str(response_format)}
+        if isinstance(response_format, dict):
+            return json.dumps(response_format)
 
-        return response_format
+        return json.dumps({"value": str(response_format)})
 
     def _generate_key(
         self, model: str, system: str, prompt: str, response_format: Any, temperature: float | None = None
     ) -> str:
         """Generate a unique key for caching based on inputs."""
-        response_format_dict = self.response_format_to_dict(response_format)
-        response_format_str = json.dumps(response_format_dict, sort_keys=True)
+        response_format_str = self._response_format_json(response_format)
         # Include temperature in the key
         key_content = f"{model}:{system}:{prompt}:{response_format_str}"
         if temperature is not None:
@@ -296,55 +383,52 @@ class LLMCache:
             "model": model,
             "system": system,
             "prompt": prompt,
-            "response_format": self.response_format_to_dict(response_format),
+            "response_format": self._response_format_json(response_format),
             "temperature": temperature,
         }
         return json.dumps(request_data)
 
     def _check_request_match(
         self,
-        cached_request: dict[str, Any],
+        cached_req: dict[str, Any],
         model: str,
         system: str,
         prompt: str,
         response_format: Any,
         temperature: float | None,
-    ) -> bool:
-        """Check if the cached request matches the new request."""
-        # Check each field and log any mismatches
-        if cached_request["model"] != model:
-            logger.debug(f"Cache mismatch: model - cached: {cached_request['model']}, new: {model}")
-            return False
-        if cached_request["system"] != system:
-            logger.debug(f"Cache mismatch: system - cached: {cached_request['system']}, new: {system}")
-            return False
-        if cached_request["prompt"] != prompt:
-            logger.debug(f"Cache mismatch: prompt - cached: {cached_request['prompt']}, new: {prompt}")
-            return False
-        response_format_dict = self.response_format_to_dict(response_format)
-        if cached_request["response_format"] != response_format_dict:
-            logger.debug(
-                f"Cache mismatch: response_format - cached: {cached_request['response_format']}, new: {response_format_dict}"
-            )
-            return False
-        if cached_request["temperature"] != temperature:
-            logger.debug(f"Cache mismatch: temperature - cached: {cached_request['temperature']}, new: {temperature}")
-            return False
+    ) -> tuple[bool, str]:
+        """Check if the cached request matches the new request.
 
-        return True
+        Returns:
+            Tuple of (bool, str) - whether the requests match and the response format string
+        """
+        # Check each field and log any mismatches
+        if cached_req["model"] != model:
+            return False, f'model mismatch: "{cached_req["model"]}" vs "{model}"'
+        if cached_req["system"] != system:
+            return False, f'system mismatch: "{cached_req["system"]}" vs "{system}"'
+        if cached_req["prompt"] != prompt:
+            return False, f'prompt mismatch: "{cached_req["prompt"]}" vs "{prompt}"'
+        resp_format_str = self._response_format_json(response_format)
+        if cached_req["response_format"] != resp_format_str:
+            return False, f'response_format mismatch: "{cached_req["response_format"]}" vs "{resp_format_str}"'
+        if cached_req["temperature"] != temperature:
+            return False, f'temperature mismatch: "{cached_req["temperature"]}" vs "{temperature}"'
+        return True, ""
 
     def get(
         self, model: str, system: str, prompt: str, response_format: dict[str, Any], temperature: float | None = None
     ) -> Optional[dict[str, Any]]:
-        """Get cached response if it exists."""
+        """Retrieve cached response if it exists."""
         key = self._generate_key(model, system, prompt, response_format, temperature)
         result = self.db.get(key)
 
         if not result:
             return None
-        request_dict = json.loads(result["request"])
-        if not self._check_request_match(request_dict, model, system, prompt, response_format, temperature):
-            logger.warning(f"Cached request does not match new request for key: {key}")
+        cached_req = json.loads(result["request"])
+        match, reason = self._check_request_match(cached_req, model, system, prompt, response_format, temperature)
+        if not match:
+            logger.warning(f"Cached request does not match new request for key: {key}. Reason: {reason}")
             return None
 
         return json.loads(result["response"])
@@ -358,7 +442,7 @@ class LLMCache:
         temperature: float | None,
         response: dict[str, Any],
     ) -> None:
-        """Set response in cache and sync if needed."""
+        """Store response in cache and sync if needed."""
         key = self._generate_key(model, system, prompt, response_format, temperature)
         request_json = self._create_request_json(model, system, prompt, response_format, temperature)
         response_json = json.dumps(response)
@@ -366,7 +450,7 @@ class LLMCache:
         success = self.db.set(key, request_json, response_json)
 
         # Check if we should sync to HF
-        if success and self.hf_repo_id and (time.time() - self.last_sync_time > self.cache_sync_interval):
+        if success and self.hf_repo and (time.time() - self.last_sync_time > self.cache_sync_interval):
             try:
                 self.sync_to_hf()
                 self.last_sync_time = time.time()
@@ -374,7 +458,7 @@ class LLMCache:
                 logger.error(f"Failed to sync cache to HF dataset: {e}")
 
     def get_all_entries(self) -> dict[str, dict[str, Any]]:
-        """Get all cache entries from the database."""
+        """Retrieve all cache entries from the database."""
         cache = self.db.get_all_entries()
         entries = {}
         for key, entry in cache.items():
@@ -383,14 +467,22 @@ class LLMCache:
             entries[key] = {"request": request, "response": response}
         return entries
 
+    def has_hf_repo(self) -> bool:
+        """Determine if the cache has an HF repo."""
+        return self.hf_repo is not None
+
+    def assign_hf_repo(self, hf_repo: str) -> None:
+        """Assign an HF repo to the cache."""
+        self.hf_repo = hf_repo
+
     def _load_cache_from_hf(self) -> None:
         """Load cache from HF dataset if it exists and merge with local cache."""
-        if not self.hf_repo_id:
+        if not self.hf_repo:
             return
 
         try:
             # Check for new commits before loading the dataset
-            dataset = load_dataset(self.hf_repo_id, split="train")
+            dataset = load_dataset_repo(self.hf_repo)
 
             existing_keys = self.db.get_existing_keys()
 
@@ -409,7 +501,7 @@ class LLMCache:
                     "system": item["system"],
                     "prompt": item["prompt"],
                     "temperature": item["temperature"],
-                    "response_format": None,  # We can't fully reconstruct this
+                    "response_format": item["response_format"],
                 }
 
                 items_to_insert.append(
@@ -431,7 +523,7 @@ class LLMCache:
 
     def sync_to_hf(self) -> None:
         """Sync cache to HF dataset."""
-        if not self.hf_repo_id:
+        if not self.hf_repo:
             return
 
         self._load_cache_from_hf()
@@ -458,8 +550,10 @@ class LLMCache:
 
         # Create and push dataset
         dataset = Dataset.from_list(entries)
-        dataset.push_to_hub(self.hf_repo_id, private=True)
-        logger.info(f"Finished syncing {len(cache)} cached items to HF dataset {self.hf_repo_id}")
+        repo_id, config_name, split = parse_dataset_repo_id(self.hf_repo)
+        config_name = config_name or "default"
+        dataset.push_to_hub(repo_id, config_name=config_name, split=split, private=True)
+        logger.info(f"Finished syncing {len(cache)} cached items to HF dataset {repo_id}")
 
     def clear(self) -> None:
         """Clear all cache entries."""

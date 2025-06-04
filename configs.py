@@ -30,12 +30,16 @@ AVAILABLE_MODELS = {
     "Anthropic/claude-3-5-haiku": {
         "model": "claude-3-5-haiku-20241022",
     },
-    "Cohere/command-r": {
-        "model": "command-r-08-2024",
+    "Cohere/command-a": {
+        "model": "command-a-03-2025",
         "logprobs": True,
     },
     "Cohere/command-r-plus": {
         "model": "command-r-plus-08-2024",
+        "logprobs": True,
+    },
+    "Cohere/command-r": {
+        "model": "command-r-08-2024",
         "logprobs": True,
     },
     "Cohere/command-r7b": {

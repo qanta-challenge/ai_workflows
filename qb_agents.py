@@ -2,7 +2,7 @@ import time
 from typing import Any, Iterable, TypedDict
 
 from anthropic import APIStatusError
-from cohere.errors import ApiError
+from cohere.core.api_error import ApiError
 from loguru import logger
 from openai import APIError
 

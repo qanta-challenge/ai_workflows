@@ -178,7 +178,7 @@ def _llm_completion(
 
 
 def completion(
-    model: str, system: str, prompt: str, response_format, temperature: float | None = None, logprobs: bool = False
+    model: str, system: str, prompt: str, response_format, temperature: float | None = None, logprobs: bool = True
 ) -> dict[str, Any]:
     """
     Generate a completion from an LLM provider with structured output with caching.
@@ -188,7 +188,7 @@ def completion(
         system (str): System prompt/instructions for the model
         prompt (str): User prompt/input
         response_format: Pydantic model defining the expected response structure
-        logprobs (bool, optional): Whether to return log probabilities. Defaults to False.
+        logprobs (bool, optional): Whether to return log probabilities. Defaults to True.
             Note: Not supported by Anthropic models.
 
     Returns:
@@ -203,16 +203,16 @@ def completion(
     if model not in AVAILABLE_MODELS:
         raise ValueError(f"Model {model} not supported")
     if logprobs and not AVAILABLE_MODELS[model].get("logprobs", False):
-        logger.warning(f"{model} does not support logprobs feature, setting logprobs to False")
+        # logger.warning(f"{model} does not support logprobs feature, setting logprobs to False")
         logprobs = False
 
     # Check cache first
     cached_response = llm_cache.get(model, system, prompt, response_format, temperature)
     if cached_response and (not logprobs or cached_response.get("logprob")):
-        logger.debug(f"Cache hit for model {model}")
+        logger.trace(f"Cache hit for model {model}")
         return cached_response
 
-    logger.debug(f"Cache miss for model {model}, calling API. Logprobs: {logprobs}")
+    logger.trace(f"Cache miss for model {model}, calling API. Logprobs: {logprobs}")
 
     # Continue with the original implementation for cache miss
     response = _llm_completion(model, system, prompt, response_format, temperature, logprobs)
@@ -242,11 +242,13 @@ if __name__ == "__main__":
         answer: str = Field(description="The short answer to the question")
         explanation: str = Field(description="5 words terse best explanation of the answer.")
 
-    models = list(AVAILABLE_MODELS.keys())[:1]  # Just use the first model for testing
+    TEST_MODELS = ["Cohere/command-r7b", "Anthropic/claude-3-5-haiku", "DeepSeek/V3"]
+
+    models = TEST_MODELS
     system = "You are an accurate and concise explainer of scientific concepts."
     prompt = "Which planet is closest to the sun in the Milky Way galaxy? Answer directly, no explanation needed."
 
-    llm_cache = LLMCache(cache_dir=".", hf_repo="qanta-challenge/advcal-llm-cache", reset=True)
+    llm_cache = LLMCache(cache_dir="/tmp/cache", hf_repo="qanta-challenge/advcal-llm-cache", reset=True)
 
     # First call - should be a cache miss
     logger.info("First call - should be a cache miss")
@@ -289,3 +291,5 @@ if __name__ == "__main__":
             logger.exception(f"Failed to sync to HF: {e}")
     else:
         logger.info("HF repo not configured, skipping sync test")
+
+# %%

@@ -72,7 +72,7 @@ class WorkflowExecutionError(Exception):
         self.workflow = workflow
 
     def __str__(self):
-        model_names = ", ".join({step.model_name for step in self.workflow.steps})
+        model_names = ", ".join({step.model_name for step in self.workflow.steps.values()})
         return f"Workflow execution failed. Models used: {model_names}"
 
 

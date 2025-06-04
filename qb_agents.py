@@ -2,6 +2,7 @@ import time
 from typing import Any, Iterable, TypedDict
 
 from anthropic import APIStatusError
+from cohere.errors import ApiError
 from loguru import logger
 from openai import APIError
 
@@ -22,15 +23,18 @@ def _get_workflow_response(
         response_time = time.time() - start_time
         return workflow_output, response_time
     except APIStatusError as e:
-        logger.error(f"Anthropic API error: {e.status_code}")
-        logger.error(f"Response body: {e.body}")
+        logger.error(f"Anthropic API error {e.status_code}: {e}")
         raise ProviderAPIError(workflow, "Anthropic", "Quota exceeded")
     except APIError as e:
-        logger.error(f"OpenAI API error: {e.status_code}")
-        logger.error(f"Response body: {e.body}")
+        logger.error(f"OpenAI API error {e.status_code}: {e}")
         if e.code == 429:
             raise ProviderAPIError(workflow, "OpenAI", "Quota / Rate limit exceeded")
         raise ProviderAPIError(workflow, "OpenAI", e.message)
+    except ApiError as e:
+        logger.error(f"Cohere API error {e.status_code}: {e}")
+        if e.status_code == 402:
+            raise ProviderAPIError(workflow, "Cohere", "Payment required")
+        raise ProviderAPIError(workflow, "Cohere", e.body["message"])
     except ValueError as e:
         logger.error(f"Exception type: {type(e).__module__}.{type(e).__name__}")
         logger.error(f"Error Message: {e}")

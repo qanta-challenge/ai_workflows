@@ -68,12 +68,13 @@ class FunctionNotFoundError(WorkflowError):
 class WorkflowExecutionError(Exception):
     """Exception for workflow errors."""
 
-    def __init__(self, workflow: Workflow):
+    def __init__(self, workflow: Workflow, msg: str = ""):
         self.workflow = workflow
+        self.msg = msg
 
     def __str__(self):
-        model_names = ", ".join({step.model_name for step in self.workflow.steps.values()})
-        return f"Workflow execution failed. Models used: {model_names}"
+        model_names = ", ".join({step.full_model_name() for step in self.workflow.steps.values()})
+        return f"Workflow execution failed. Models used: {model_names}. {self.msg}"
 
 
 class ProviderAPIError(WorkflowExecutionError):

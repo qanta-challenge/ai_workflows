@@ -73,7 +73,7 @@ class WorkflowExecutionError(Exception):
         self.msg = msg
 
     def __str__(self):
-        model_names = ", ".join({step.full_model_name() for step in self.workflow.steps.values()})
+        model_names = ", ".join({step.get_full_model_name() for step in self.workflow.steps.values()})
         return f"Workflow execution failed. Models used: {model_names}. {self.msg}"
 
 

@@ -3,6 +3,7 @@ import re
 
 import inflect
 import nltk
+from loguru import logger
 
 nltk.download("stopwords")
 from nltk.corpus import stopwords
@@ -61,13 +62,27 @@ def answer_match(prediction: str, answer: str) -> bool:
             return False
         return check_presence(pred_to_check, ans)
 
+    try:
+        singular_noun = p.singular_noun(pred)
+    except Exception as e:
+        logger.warning(f'{e.__class__.__name__}: Error in creating singular noun for "{pred}"')
+        logger.exception(e)
+        singular_noun = False
+
+    try:
+        plural_form = p.plural(pred)
+    except Exception as e:
+        logger.warning(f'{e.__class__.__name__}: Error in creating plural form for "{pred}"')
+        logger.exception(e)
+        plural_form = False
+
     candidates = {
         pred,
-        p.singular_noun(pred),
-        p.plural(pred),
+        singular_noun,
+        plural_form,
         pred.removesuffix("s"),
         pred.removesuffix("es"),
-    } - {False}
+    } - {False, ""}
 
     # If pred is a single word, allow -ing, -ism, etc forms
     if len(pred.split()) == 1:

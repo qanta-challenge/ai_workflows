@@ -4,9 +4,9 @@ from enum import Enum
 from typing import Any, Literal, Optional
 
 import numpy as np
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, create_model, model_validator
 
-from .configs import AVAILABLE_MODELS
+from .configs import AVAILABLE_MODELS, TYPE_MAP
 
 """
 Core data structures for defining workflows and their components.
@@ -28,6 +28,14 @@ FieldType = Literal["input", "output"]
 
 SUPPORTED_TYPES = Literal["str", "int", "float", "bool", "list[str]", "list[int]", "list[float]", "list[bool]"]
 """Supported field types for input and output fields"""
+
+
+def get_type(type_str: str) -> type:
+    """
+    Converts a type string to its corresponding Python type.
+    """
+
+    return TYPE_MAP.get(type_str, eval(type_str))
 
 
 class InputField(BaseModel):
@@ -116,6 +124,10 @@ class ModelStep(BaseModel):
     input_fields: list[InputField]
     output_fields: list[OutputField]
 
+    @property
+    def full_name(self) -> str:
+        return f"{self.provider}/{self.model}"
+
     class Config:
         use_enum_values = True
 
@@ -127,6 +139,15 @@ class ModelStep(BaseModel):
 
     def get_produced_variables(self) -> list[str]:
         return [f"{self.id}.{field.name}" for field in self.output_fields if field.name]
+
+    def get_output_response_model(self):
+        # Define the expected output fields and their types
+        fields = {
+            field.name: (get_type(field.type), Field(..., description=field.description))
+            for field in self.output_fields
+        }
+        ModelResponse = create_model("ModelResponse", **fields)
+        return ModelResponse
 
     def update(self, update: dict[str, Any]) -> "ModelStep":
         """Returns a new copy with the updated properties."""

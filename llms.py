@@ -64,6 +64,14 @@ def _get_langchain_chat_output(llm: BaseChatModel, system: str, prompt: str) -> 
     ai_message = output["raw"]
     content = {"content": ai_message.content, "tool_calls": ai_message.tool_calls}
     content_str = json.dumps(content)
+    if output["parsed"] is None:
+        logger.error(f"No parsed output for {llm.model_name} with SYSTEM: {repr(system)} and PROMPT: {repr(prompt)}")
+        logger.error(f"Raw output: {content_str}")
+        if output["parsing_error"]:
+            raise output["parsing_error"]
+        else:
+            raise Exception("No parsing error, but no parsed output")
+
     return {"content": content_str, "output": output["parsed"].model_dump()}
 
 

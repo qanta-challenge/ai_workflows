@@ -349,7 +349,8 @@ class LLMCache:
         except Exception as e:
             logger.warning(f"Failed to load cache from HF dataset: {e}")
 
-    def _response_format_json(self, response_format: BaseModel | dict) -> str:
+    @classmethod
+    def _response_format_json(cls, response_format: BaseModel | dict) -> str:
         """Convert a response format to a JSON string."""
         # If it's a Pydantic BaseModel subclass, use its schema
         if hasattr(response_format, "model_json_schema"):
@@ -547,6 +548,10 @@ class LLMCache:
                     "response": response_str,
                 }
             )
+
+        if not entries:
+            logger.info("No entries to sync to HF")
+            return
 
         # Create and push dataset
         dataset = Dataset.from_list(entries)

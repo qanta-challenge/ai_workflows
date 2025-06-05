@@ -29,8 +29,13 @@ except ImportError:
     LLM_CACHE_REPO = None
 
 
+from langchain_community.cache import SQLiteCache
+from langchain_core.globals import set_llm_cache
+
 from .configs import AVAILABLE_MODELS
 from .llmcache import LLMCache
+
+set_llm_cache(SQLiteCache(database_path=f"{CACHE_PATH}/langchain.db"))
 
 llm_cache = LLMCache(cache_dir=CACHE_PATH, hf_repo=LLM_CACHE_REPO)
 

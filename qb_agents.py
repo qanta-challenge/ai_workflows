@@ -36,11 +36,10 @@ def _get_workflow_response(
             raise ProviderAPIError(workflow, "Cohere", "Payment required")
         raise ProviderAPIError(workflow, "Cohere", e.body["message"])
     except ValueError as e:
-        logger.error(f"Exception type: {type(e).__module__}.{type(e).__name__}")
-        logger.error(f"Error Message: {e}")
+        logger.exception(f"Error Message: {e}")
         raise e
     except Exception as e:
-        logger.error(f"Exception type: {type(e).__module__}.{type(e).__name__}")
+        logger.exception(f"Error Message: {e}")
         raise WorkflowExecutionError(workflow)
 
 

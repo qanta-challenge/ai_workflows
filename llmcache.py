@@ -282,9 +282,9 @@ def parse_dataset_repo_id(repo_name: str) -> tuple[str, str, str]:
     return repo_id, config, split
 
 
-def load_dataset_repo(repo_name: str) -> Dataset:
+def load_dataset_repo(repo_name: str, **kwargs) -> Dataset:
     repo_id, config, split = parse_dataset_repo_id(repo_name)
-    return load_dataset(repo_id, config=config, split=split)
+    return load_dataset(repo_id, config=config, split=split, **kwargs)
 
 
 class LLMCache:
@@ -483,7 +483,7 @@ class LLMCache:
 
         try:
             # Check for new commits before loading the dataset
-            dataset = load_dataset_repo(self.hf_repo)
+            dataset = load_dataset_repo(self.hf_repo, download_mode="force_redownload")
 
             existing_keys = self.db.get_existing_keys()
 

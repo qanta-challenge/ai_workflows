@@ -5,10 +5,11 @@ import os
 from typing import Any, Optional
 
 import cohere
+import json_repair
 import numpy as np
 from langchain_anthropic import ChatAnthropic
 from langchain_cohere import ChatCohere
-from langchain_core.language_models import BaseChatModel
+from langchain_core.exceptions import OutputParserException
 from langchain_deepseek import ChatDeepSeek
 from langchain_openai import ChatOpenAI
 from loguru import logger
@@ -64,14 +65,14 @@ class LLMOutput(BaseModel):
     logprob: Optional[float] = Field(None, description="The log probability of the response")
 
 
-def _get_langchain_chat_output(llm: BaseChatModel, system: str, prompt: str) -> str:
-    output = llm.invoke([("system", system), ("human", prompt)])
+def _get_langchain_chat_output(output: dict, prompt: str) -> str:
     ai_message = output["raw"]
     content = {"content": ai_message.content, "tool_calls": ai_message.tool_calls}
     content_str = json.dumps(content)
     if output["parsed"] is None:
-        logger.error(f"No parsed output for {llm.model_name} with SYSTEM: {repr(system)} and PROMPT: {repr(prompt)}")
-        logger.error(f"Raw output: {content_str}")
+        logger.error(f"No parsed output for Langchain model with User prompt: {repr(prompt)}")
+        logger.error(f"Returned AI message: {repr(ai_message.content)}")
+        logger.error(f"Raw output: {output}")
         if output["parsing_error"]:
             raise output["parsing_error"]
         else:
@@ -123,7 +124,20 @@ def _langchain_completion(
     else:
         raise ValueError(f"Provider {provider} not supported")
     llm = model_cls(model=model, temperature=temperature).with_structured_output(response_model, include_raw=True)
-    return _get_langchain_chat_output(llm, system, prompt)
+    output = llm.invoke([("system", system), ("human", prompt)])
+    try:
+        return _get_langchain_chat_output(output, prompt)
+    except OutputParserException as e:
+        logger.info(f"JSONDecodeError for model {model}, trying to parse invalid tool calls")
+        invalid_tool_calls = output["raw"].invalid_tool_calls
+        print(invalid_tool_calls)
+        if not invalid_tool_calls:
+            logger.error(f"Tried to parse invalid tool calls for model {model}, but no invalid tool calls found")
+            raise e
+        bad_json = [t["args"] for t in invalid_tool_calls if t["name"] == "ModelResponse"][0]
+        repaired_obj = json_repair.loads(bad_json, skip_json_loads=True)
+        parsed = response_model(**repaired_obj)
+        return {"content": bad_json, "output": parsed.model_dump()}
 
 
 def _openai_completion(
